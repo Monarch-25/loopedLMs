@@ -1,0 +1,45 @@
+model:
+  model_name_or_path: Qwen/Qwen2.5-0.5B
+  architecture: dense
+  tokenizer_name_or_path: Qwen/Qwen2.5-0.5B
+  torch_dtype: bfloat16
+data:
+  dataset_name: open-r1/OpenR1-Math-220k
+  dataset_config_name: default
+  text_column: text
+  prompt_column: problem
+  solution_column: solution
+  answer_column: answer
+  source_column: source
+training:
+  output_dir: runs/recovery/dense-0p5b
+  seed: 42
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 32
+  learning_rate: 1.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  max_steps: 2000
+  logging_steps: 10
+  eval_steps: 100
+  save_steps: 100
+  save_total_limit: 2
+  max_seq_length: 512
+  gradient_checkpointing: true
+  bf16: true
+  report_to: []
+recovery:
+  teacher_model_name_or_path: Qwen/Qwen2.5-0.5B
+  fineweb_dataset_name: HuggingFaceFW/fineweb-edu
+  fineweb_split: train
+  math_dataset_name: open-r1/OpenR1-Math-220k
+  math_dataset_config: default
+  math_split: train
+  chunk_length: 512
+  ce_weight: 1.0
+  kl_weight: 1.0
+  temperature: 1.0
+  max_total_tokens: 12000000
+  fineweb_token_budget: 10000000
+  math_token_budget: 2000000

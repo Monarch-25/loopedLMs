@@ -1,0 +1,46 @@
+model:
+  model_name_or_path: runs/recovery/looped-0p5b
+  architecture: looped
+  tokenizer_name_or_path: runs/recovery/looped-0p5b
+  torch_dtype: bfloat16
+  recurrent_steps: 4
+  num_unique_layers: 6
+  enable_exit_head: false
+data:
+  dataset_name: open-r1/OpenR1-Math-220k
+  dataset_config_name: default
+  dataset_path_override: data/prepared/sft
+  train_split: train
+  eval_split: validation
+  prompt_column: problem
+  solution_column: solution
+  answer_column: answer
+  source_column: source
+  output_dir: data/prepared/sft
+  train_size: 25000
+  eval_size: 2000
+  decontaminate_with:
+    - HuggingFaceH4/MATH-500
+    - openai/gsm8k
+training:
+  output_dir: runs/sft/looped-0p5b
+  seed: 42
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 32
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  max_steps: -1
+  num_train_epochs: 2
+  logging_steps: 10
+  eval_steps: 100
+  save_steps: 100
+  save_total_limit: 2
+  max_seq_length: 1024
+  gradient_checkpointing: true
+  bf16: true
+  report_to: []
+sft:
+  packing: false
+  require_boxed_answer: true
