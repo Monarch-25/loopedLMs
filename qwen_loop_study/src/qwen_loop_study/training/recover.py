@@ -11,6 +11,13 @@ from datasets import Dataset, load_dataset, load_from_disk
 from transformers import AutoModelForCausalLM, DataCollatorForLanguageModeling, Trainer, TrainingArguments
 
 from qwen_loop_study.config import RecoveryRunConfig, load_yaml_config
+from qwen_loop_study.tracking import (
+    finish_wandb_run,
+    log_wandb_artifact,
+    log_wandb_metrics,
+    make_loop_callback,
+    maybe_init_wandb,
+)
 from qwen_loop_study.training.common import (
     append_manifest,
     build_model,
@@ -142,6 +149,25 @@ def run_recovery(config: RecoveryRunConfig):
         teacher_model.config.use_cache = False
 
     student_model = build_model(config.model)
+
+    # --- W&B: initialize run and log pre-training diagnostics ---
+    wandb_run = maybe_init_wandb(
+        stage="recovery",
+        model=student_model,
+        model_spec=config.model,
+        data_spec=config.data,
+        training_spec=config.training,
+        extra_config={
+            "recovery": {
+                "teacher": config.recovery.teacher_model_name_or_path,
+                "ce_weight": config.recovery.ce_weight,
+                "kl_weight": config.recovery.kl_weight,
+                "temperature": config.recovery.temperature,
+                "max_total_tokens": config.recovery.max_total_tokens,
+            }
+        },
+    )
+
     raw_dataset = build_recovery_dataset(config, tokenizer)
     tokenized = tokenize_recovery_dataset(raw_dataset, tokenizer, config.recovery.chunk_length)
     split = tokenized.train_test_split(test_size=min(max(1, len(tokenized) // 10), 128), seed=config.training.seed)
@@ -152,6 +178,7 @@ def run_recovery(config: RecoveryRunConfig):
         eval_strategy="steps",
     )
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    loop_cb = make_loop_callback(student_model, wandb_run)
     trainer = DistillationTrainer(
         model=student_model,
         teacher_model=teacher_model,
@@ -163,6 +190,7 @@ def run_recovery(config: RecoveryRunConfig):
         train_dataset=split["train"],
         eval_dataset=split["test"],
         processing_class=tokenizer,
+        callbacks=[loop_cb] if loop_cb else None,
     )
     train_result = trainer.train(resume_from_checkpoint=config.training.resume_from_checkpoint)
     trainer.save_model(config.training.output_dir)
@@ -182,6 +210,21 @@ def run_recovery(config: RecoveryRunConfig):
             "metrics": metrics,
         },
     )
+
+    # --- W&B: log final metrics and checkpoint artifact ---
+    log_wandb_metrics(wandb_run, metrics, prefix="recovery")
+    log_wandb_metrics(wandb_run, eval_metrics, prefix="recovery/eval")
+    log_wandb_artifact(
+        wandb_run,
+        name=f"recovery-{config.model.architecture}-checkpoint",
+        artifact_type="model",
+        paths=[
+            str(Path(config.training.output_dir) / "model.safetensors"),
+            str(Path(config.training.output_dir) / "config.json"),
+        ],
+    )
+    finish_wandb_run(wandb_run, summary_updates={**metrics, **eval_metrics})
+
     return trainer, metrics, eval_metrics
 
 

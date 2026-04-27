@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from transformers import PreTrainedTokenizerBase
 
 from qwen_loop_study.config import SFTRunConfig, load_yaml_config
 from qwen_loop_study.data.build_splits import ensure_boxed_solution, format_math_prompt
+from qwen_loop_study.tracking import (
+    finish_wandb_run,
+    log_wandb_artifact,
+    log_wandb_metrics,
+    make_loop_callback,
+    maybe_init_wandb,
+)
 from qwen_loop_study.training.common import (
     append_manifest,
     build_model,
@@ -44,6 +52,17 @@ def run_sft(config: SFTRunConfig):
     train_split = train_split.map(lambda example: build_sft_text(example, tokenizer, config))
     eval_split = eval_split.map(lambda example: build_sft_text(example, tokenizer, config))
 
+    # --- W&B: initialize run and log pre-training diagnostics ---
+    wandb_run = maybe_init_wandb(
+        stage="sft",
+        model=model,
+        model_spec=config.model,
+        data_spec=config.data,
+        training_spec=config.training,
+        train_dataset=train_split,
+        eval_dataset=eval_split,
+    )
+
     training_args = SFTConfig(
         **build_training_kwargs(config.training, remove_unused_columns=True),
         do_train=True,
@@ -53,12 +72,14 @@ def run_sft(config: SFTRunConfig):
         dataset_text_field="text",
         packing=config.sft.packing,
     )
+    loop_cb = make_loop_callback(model, wandb_run)
     trainer = SFTTrainer(
         model=model,
         args=training_args,
         train_dataset=train_split,
         eval_dataset=eval_split,
         processing_class=tokenizer,
+        callbacks=[loop_cb] if loop_cb else None,
     )
     train_result = trainer.train(resume_from_checkpoint=config.training.resume_from_checkpoint)
     trainer.save_model(config.training.output_dir)
@@ -78,6 +99,21 @@ def run_sft(config: SFTRunConfig):
             "metrics": metrics,
         },
     )
+
+    # --- W&B: log final metrics and checkpoint artifact ---
+    log_wandb_metrics(wandb_run, metrics, prefix="sft")
+    log_wandb_metrics(wandb_run, eval_metrics, prefix="sft/eval")
+    log_wandb_artifact(
+        wandb_run,
+        name=f"sft-{config.model.architecture}-checkpoint",
+        artifact_type="model",
+        paths=[
+            str(Path(config.training.output_dir) / "model.safetensors"),
+            str(Path(config.training.output_dir) / "config.json"),
+        ],
+    )
+    finish_wandb_run(wandb_run, summary_updates={**metrics, **eval_metrics})
+
     return trainer, metrics, eval_metrics
 
 

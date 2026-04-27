@@ -21,6 +21,9 @@ eval = [
   "math-verify[antlr4_13_2]>=0.7.0",
   "lighteval>=0.8.0",
 ]
+tracking = [
+  "wandb>=0.17.0",
+]
 dev = [
   "pytest>=8.3.0",
 ]

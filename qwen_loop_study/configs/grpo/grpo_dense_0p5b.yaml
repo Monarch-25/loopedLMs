@@ -37,6 +37,12 @@ training:
   gradient_checkpointing: true
   bf16: true
   report_to: []
+  wandb:
+    enabled: false
+    project: qwen-loop-study
+    watch: true
+    watch_log: gradients
+    watch_log_freq: 100
 grpo:
   beta: 0.01
   num_generations: 4

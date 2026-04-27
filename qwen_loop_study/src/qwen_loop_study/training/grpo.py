@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import argparse
 import re
+from pathlib import Path
 from typing import Any
 
 from qwen_loop_study.config import GRPORunConfig, RewardSpec, load_yaml_config
 from qwen_loop_study.data.build_splits import format_math_prompt
+from qwen_loop_study.tracking import (
+    finish_wandb_run,
+    log_wandb_artifact,
+    log_wandb_metrics,
+    make_loop_callback,
+    maybe_init_wandb,
+)
 from qwen_loop_study.training.common import (
     append_manifest,
     build_model,
@@ -108,6 +116,29 @@ def run_grpo(config: GRPORunConfig):
     train_split = dataset[config.data.train_split].map(build_grpo_prompts)
     do_eval = config.training.eval_steps > 0 and config.data.eval_split in dataset
     eval_split = dataset[config.data.eval_split].map(build_grpo_prompts) if do_eval else None
+
+    # --- W&B: initialize run and log pre-training diagnostics ---
+    wandb_run = maybe_init_wandb(
+        stage="grpo",
+        model=model,
+        model_spec=config.model,
+        data_spec=config.data,
+        training_spec=config.training,
+        train_dataset=train_split,
+        eval_dataset=eval_split,
+        extra_config={
+            "grpo": {
+                "beta": config.grpo.beta,
+                "num_generations": config.grpo.num_generations,
+                "max_completion_length": config.grpo.max_completion_length,
+                "temperature": config.grpo.temperature,
+                "loss_type": config.grpo.loss_type,
+                "exact_match_reward": config.grpo.reward.exact_match_reward,
+                "boxed_parse_reward": config.grpo.reward.boxed_parse_reward,
+            }
+        },
+    )
+
     reward_fn = build_reward_function(config.grpo.reward)
     training_args = GRPOConfig(
         **build_training_kwargs(config.training, remove_unused_columns=False),
@@ -121,6 +152,7 @@ def run_grpo(config: GRPORunConfig):
         beta=config.grpo.beta,
         use_vllm=config.grpo.use_vllm,
     )
+    loop_cb = make_loop_callback(model, wandb_run)
     trainer = GRPOTrainer(
         model=model,
         reward_funcs=[reward_fn],
@@ -128,6 +160,7 @@ def run_grpo(config: GRPORunConfig):
         train_dataset=train_split,
         eval_dataset=eval_split,
         processing_class=tokenizer,
+        callbacks=[loop_cb] if loop_cb else None,
     )
     train_result = trainer.train(resume_from_checkpoint=config.training.resume_from_checkpoint)
     trainer.save_model(config.training.output_dir)
@@ -148,6 +181,22 @@ def run_grpo(config: GRPORunConfig):
             "metrics": metrics,
         },
     )
+
+    # --- W&B: log final metrics and checkpoint artifact ---
+    log_wandb_metrics(wandb_run, metrics, prefix="grpo")
+    if eval_metrics:
+        log_wandb_metrics(wandb_run, eval_metrics, prefix="grpo/eval")
+    log_wandb_artifact(
+        wandb_run,
+        name=f"grpo-{config.model.architecture}-checkpoint",
+        artifact_type="model",
+        paths=[
+            str(Path(config.training.output_dir) / "model.safetensors"),
+            str(Path(config.training.output_dir) / "config.json"),
+        ],
+    )
+    finish_wandb_run(wandb_run, summary_updates={**metrics, **eval_metrics})
+
     return trainer, metrics, eval_metrics
 
 

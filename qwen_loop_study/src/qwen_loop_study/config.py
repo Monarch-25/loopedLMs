@@ -79,6 +79,7 @@ class TrainingSpec:
     logging_first_step: bool = True
     dataloader_num_workers: int = 0
     resume_from_checkpoint: str | None = None
+    wandb: "WandbSpec | None" = None
 
 
 @dataclass
@@ -137,6 +138,24 @@ class EvalSpec:
     output_predictions_path: str = "results/per_example_predictions.parquet"
     summary_csv_path: str = "results/summary.csv"
     num_bootstrap_samples: int = 1000
+    wandb: "WandbSpec | None" = None
+
+
+@dataclass
+class WandbSpec:
+    enabled: bool = False
+    project: str | None = None
+    entity: str | None = None
+    group: str | None = None
+    job_type: str | None = None
+    name: str | None = None
+    tags: list[str] | None = None
+    notes: str | None = None
+    mode: str = "online"
+    save_code: bool = True
+    watch: bool = False
+    watch_log: str = "gradients"
+    watch_log_freq: int = 100
 
 
 @dataclass
