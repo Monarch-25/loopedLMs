@@ -40,7 +40,7 @@ To rigorously test these hypotheses, this repository implements a structured 4-s
 
 The implementation details, environment setup, and instructions for running the complete 4-stage pipeline (including Weights & Biases tracking) are thoroughly documented in the `GUIDE.md`.
 
-Please refer to **[`GUIDE.md`](.qwen_loop_study/GUIDE.md)** for:
+Please refer to **[`GUIDE.md`](qwen_loop_study/GUIDE.md)** for:
 *   Installation instructions
 *   Dataset preparation
 *   Executing the Recovery, SFT, GRPO, and Eval stages
